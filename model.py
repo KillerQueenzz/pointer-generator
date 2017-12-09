@@ -48,7 +48,8 @@ class SummarizationModel(object):
     self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='dec_batch')
     self._target_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='target_batch')
     self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, hps.max_dec_steps], name='dec_padding_mask')
-
+    self._pgen_info = tf.placeholder(tf.float32, [2,hps.batch_size, hps.max_dec_steps],
+                                     name='pgen_info')
     if hps.mode=="decode" and hps.coverage:
       self.prev_coverage = tf.placeholder(tf.float32, [hps.batch_size, None], name='prev_coverage')
 
@@ -143,7 +144,7 @@ class SummarizationModel(object):
 
     return outputs, out_state, attn_dists, p_gens, coverage
 
-  def _calc_final_dist(self, vocab_dists, attn_dists):
+  def _calc_final_dist(self, vocab_dists, attn_dists, pgen_info):
     """Calculate the final distribution, for the pointer-generator model
 
     Args:
@@ -154,6 +155,7 @@ class SummarizationModel(object):
       final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
     """
     with tf.variable_scope('final_distribution'):
+      pgen_bs, pcopy_bs = pgen_info
       # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
       vocab_dists = [p_gen * dist for (p_gen,dist) in zip(self.p_gens, vocab_dists)]
       attn_dists = [(1-p_gen) * dist for (p_gen,dist) in zip(self.p_gens, attn_dists)]
@@ -178,7 +180,8 @@ class SummarizationModel(object):
       # Add the vocab distributions and the copy distributions together to get the final distributions
       # final_dists is a list length max_dec_steps; each entry is a tensor shape (batch_size, extended_vsize) giving the final distribution for that decoder timestep
       # Note that for decoder timesteps and examples corresponding to a [PAD] token, this is junk - ignore.
-      final_dists = [vocab_dist + copy_dist for (vocab_dist,copy_dist) in zip(vocab_dists_extended, attn_dists_projected)]
+      final_dists = [pgen_b*vocab_dist + pcopy_b*copy_dist for (vocab_dist, copy_dist, pgen_b, pcopy_b) 
+                            in zip(vocab_dists_extended, attn_dists_projected, pgen_bs, pcopy_bs)]
 
       return final_dists
 
@@ -240,7 +243,10 @@ class SummarizationModel(object):
 
       # For pointer-generator model, calc final distribution from copy distribution and vocabulary distribution
       if FLAGS.pointer_gen:
-        final_dists = self._calc_final_dist(vocab_dists, self.attn_dists)
+        pgen_bs = tf.split(self._pgen_info[0],self._pgen_info[0].shape[1],axis=1)
+        pcopy_bs = tf.split(self._pgen_info[1],self._pgen_info[1].shape[1],axis=1)
+
+        final_dists = self._calc_final_dist(vocab_dists, self.attn_dists, (pgen_bs,pcopy_bs))
       else: # final distribution is just vocabulary distribution
         final_dists = vocab_dists
 
