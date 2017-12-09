@@ -199,6 +199,10 @@ class Batch(object):
     self.dec_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
     self.target_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
     self.dec_padding_mask = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.float32)
+    if hps.mode == "decode": 
+      self.pgen_info = np.ones((2, hps.batch_size, hps.max_dec_steps), dtype=np.float32)
+    else:
+      self.pgen_info = np.zeros((2, hps.batch_size, hps.max_dec_steps), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
